@@ -8,12 +8,12 @@ project(libyuv VERSION 1433)
 option(BUILD_TEST "Built unit tests" OFF)
 option(BUILD_CONVERT "Build convert executable" OFF)
 option(USE_LIBJPEG "Use libjpeg" ON)
-option(LINK_STATIC_RUNTIME "Use static linking of msvc runtime libraries" OFF)
+option(MSVC_LINK_STATIC_RUNTIME "Use static linking of msvc runtime libraries" OFF)
 
 #==========================================
 
 # switch from dynamic to static linking
-if(MSVC AND LINK_STATIC_RUNTIME)
+if(MSVC AND MSVC_LINK_STATIC_RUNTIME)
 	foreach(flag_var
 		CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
 		CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
