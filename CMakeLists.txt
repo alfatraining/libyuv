@@ -10,6 +10,8 @@ option(BUILD_CONVERT "Build convert executable" OFF)
 option(USE_LIBJPEG "Use libjpeg" ON)
 option(MSVC_LINK_STATIC_RUNTIME "Use static linking of msvc runtime libraries" OFF)
 
+set(CMAKE_DEBUG_POSTFIX "d")
+
 #==========================================
 
 # switch from dynamic to static linking
