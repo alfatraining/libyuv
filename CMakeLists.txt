@@ -176,4 +176,4 @@ install(FILES ${ly_header_files} DESTINATION include/libyuv)
 install(FILES ${ly_inc_dir}/libyuv.h DESTINATION include/)
 
 install(EXPORT ${CMAKE_PROJECT_NAME}Config
-    DESTINATION lib/cmake)
+    DESTINATION cmake)
