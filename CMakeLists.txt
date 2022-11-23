@@ -2,20 +2,22 @@
 # Originally created for "roxlu build system" to compile libyuv on windows
 # Run with -DTEST=ON to build unit tests
 
-PROJECT ( YUV C CXX )	# "C" is required even for C++ projects
-CMAKE_MINIMUM_REQUIRED( VERSION 2.8.12 )
-OPTION( TEST "Built unit tests" OFF )
+CMAKE_MINIMUM_REQUIRED(VERSION 3.15)
+project(libyuv VERSION 1850)
+option(BUILD_TEST "Built unit tests" OFF)
+option(BUILD_CONVERT "Build convert executable" OFF)
+option(USE_LIBJPEG "Use libjpeg" ON)
 
 SET ( ly_base_dir	${PROJECT_SOURCE_DIR} )
 SET ( ly_src_dir	${ly_base_dir}/source )
 SET ( ly_inc_dir	${ly_base_dir}/include )
 SET ( ly_tst_dir	${ly_base_dir}/unit_test )
-SET ( ly_lib_name	yuv )
-SET ( ly_lib_static	${ly_lib_name} )
-SET ( ly_lib_shared	${ly_lib_name}_shared )
 
 FILE ( GLOB_RECURSE	ly_source_files ${ly_src_dir}/*.cc )
 LIST ( SORT			ly_source_files )
+
+FILE ( GLOB_RECURSE	ly_header_files ${ly_src_dir}/*.h )
+LIST ( SORT			ly_header_files )
 
 FILE ( GLOB_RECURSE	ly_unittest_sources ${ly_tst_dir}/*.cc )
 LIST ( SORT			ly_unittest_sources )
@@ -27,7 +29,15 @@ if(MSVC)
 endif()
 
 # this creates the static library (.a)
-ADD_LIBRARY				( ${ly_lib_static} STATIC ${ly_source_files} )
+add_library(libyuv STATIC ${ly_source_files} ${ly_header_files})
+set_target_properties(libyuv PROPERTIES
+    COMPILE_DEFINITIONS "_CRT_SECURE_NO_WARNINGS"
+    INCLUDE_DIRECTORIES "${ly_inc_dir}"
+    INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:include>;$<BUILD_INTERFACE:${ly_inc_dir}>"
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+    IMPORT_PREFIX ""
+    IMPORT_SUFFIX _imp${CMAKE_IMPORT_LIBRARY_SUFFIX}
+    PREFIX "")
 
 # this creates the shared library (.so)
 ADD_LIBRARY				( ${ly_lib_shared} SHARED ${ly_source_files} )
@@ -37,22 +47,26 @@ if(WIN32)
   SET_TARGET_PROPERTIES	( ${ly_lib_shared} PROPERTIES IMPORT_PREFIX "lib" )
 endif()
 
-# this creates the conversion tool
-ADD_EXECUTABLE			( yuvconvert ${ly_base_dir}/util/yuvconvert.cc )
-TARGET_LINK_LIBRARIES	( yuvconvert ${ly_lib_static} )
+if(BUILD_CONVERT)
+    add_executable(convert ${ly_base_dir}/util/convert.cc)
+    target_link_libraries(convert libyuv)
 
-# this creates the yuvconstants tool
-ADD_EXECUTABLE      ( yuvconstants ${ly_base_dir}/util/yuvconstants.c )
-TARGET_LINK_LIBRARIES  ( yuvconstants ${ly_lib_static} )
-
-find_package ( JPEG )
-if (JPEG_FOUND)
-  include_directories( ${JPEG_INCLUDE_DIR} )
-  target_link_libraries( yuvconvert ${JPEG_LIBRARY} )
-  add_definitions( -DHAVE_JPEG )
+	add_executable(yuvconstants ${ly_base_dir}/util/yuvconstants.c )
+	target_link_libraries(yuvconstants libyuv} )
 endif()
 
-if(TEST)
+if(USE_LIBJPEG)
+    include(FindJPEG)
+    if (JPEG_FOUND)
+        include_directories(${JPEG_INCLUDE_DIR})
+        if (BUILD_CONVERT)
+            target_link_libraries(convert ${JPEG_LIBRARY})
+        endif()
+        add_definitions(-DHAVE_JPEG)
+    endif()
+endif()
+
+if(BUILD_TEST)
   find_library(GTEST_LIBRARY gtest)
   if(GTEST_LIBRARY STREQUAL "GTEST_LIBRARY-NOTFOUND")
     set(GTEST_SRC_DIR /usr/src/gtest CACHE STRING "Location of gtest sources")
@@ -69,12 +83,12 @@ if(TEST)
   endif()
 
   add_executable(libyuv_unittest ${ly_unittest_sources})
-  target_link_libraries(libyuv_unittest ${ly_lib_name} ${GTEST_LIBRARY})
+  target_link_libraries(libyuv_unittest libyuv ${GTEST_LIBRARY})
   find_library(PTHREAD_LIBRARY pthread)
   if(NOT PTHREAD_LIBRARY STREQUAL "PTHREAD_LIBRARY-NOTFOUND")
     target_link_libraries(libyuv_unittest pthread)
   endif()
-  if (JPEG_FOUND)
+  if (USE_LIBJPEG AND JPEG_FOUND)
     target_link_libraries(libyuv_unittest ${JPEG_LIBRARY})
   endif()
 
@@ -91,10 +105,20 @@ endif()
 
 
 # install the conversion tool, .so, .a, and all the header files
-INSTALL ( PROGRAMS ${CMAKE_BINARY_DIR}/yuvconvert			DESTINATION bin )
-INSTALL ( TARGETS ${ly_lib_static}						DESTINATION lib )
-INSTALL ( TARGETS ${ly_lib_shared} LIBRARY				DESTINATION lib RUNTIME DESTINATION bin )
-INSTALL ( DIRECTORY ${PROJECT_SOURCE_DIR}/include/		DESTINATION include )
+if (BUILD_CONVERT)
+	install ( PROGRAMS ${CMAKE_BINARY_DIR}/yuvconvert DESTINATION bin )
+endif()
+
+install(TARGETS libyuv
+    EXPORT ${CMAKE_PROJECT_NAME}Config
+    LIBRARY DESTINATION lib COMPONENT dev
+    ARCHIVE DESTINATION lib COMPONENT dev
+    RUNTIME DESTINATION bin COMPONENT bin)
+
+install ( DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include )
+
+install(EXPORT ${CMAKE_PROJECT_NAME}Config
+    DESTINATION cmake)
 
 # create the .deb and .rpm packages using cpack
 INCLUDE ( CM_linux_packages.cmake )
