@@ -4,17 +4,19 @@
 
 include(CheckCSourceCompiles)
 
-project ( YUV C CXX )	# "C" is required even for C++ projects
-cmake_minimum_required( VERSION 2.8.12 )
+cmake_minimum_required(VERSION 3.15.0)
+project ( libyuv LANGUAGES C CXX VERSION 1898 )	# "C" is required even for C++ projects
 option( UNIT_TEST "Built unit tests" OFF )
+option( BUILD_TOOLS "Build tools" OFF )
+option( BUILD_SHARED_LIBS "Build shared libs as well" ON )
+option( USE_LIBJPEG "Try to use jpeg lib" ON )
+option( USE_ARMV9_SVE "Use ARMv9 SVE optimizations" OFF )
 
 set ( ly_base_dir	${PROJECT_SOURCE_DIR} )
 set ( ly_src_dir	${ly_base_dir}/source )
 set ( ly_inc_dir	${ly_base_dir}/include )
 set ( ly_tst_dir	${ly_base_dir}/unit_test )
-set ( ly_lib_name	yuv )
-set ( ly_lib_static	${ly_lib_name} )
-set ( ly_lib_shared	${ly_lib_name}_shared )
+set ( ly_lib_name	${CMAKE_PROJECT_NAME} )
 
 # We cannot use GLOB here since we want to be able to separate out files that
 # need particular flags to enable architecture extensions like AArch64's SVE.
@@ -97,7 +99,7 @@ if(NOT MSVC)
     list(APPEND ly_lib_parts $<TARGET_OBJECTS:${ly_lib_name}_neon>)
   endif()
 
-  if(arch_lowercase STREQUAL "aarch64" OR arch_lowercase STREQUAL "arm64")
+  if(arch_lowercase STREQUAL "aarch64" OR arch_lowercase STREQUAL "arm64" AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
     # Enable AArch64 Neon dot-product and i8mm kernels.
     add_library(${ly_lib_name}_neon64 OBJECT
       ${ly_src_dir}/compare_neon64.cc
@@ -107,11 +109,15 @@ if(NOT MSVC)
     target_compile_options(${ly_lib_name}_neon64 PRIVATE -march=armv8-a+dotprod+i8mm)
     list(APPEND ly_lib_parts $<TARGET_OBJECTS:${ly_lib_name}_neon64>)
 
+    if(USE_ARMV9_SVE)
     # Enable AArch64 SVE kernels.
-    add_library(${ly_lib_name}_sve OBJECT
-      ${ly_src_dir}/row_sve.cc)
-    target_compile_options(${ly_lib_name}_sve PRIVATE -march=armv9-a+sve2)
-    list(APPEND ly_lib_parts $<TARGET_OBJECTS:${ly_lib_name}_sve>)
+      add_library(${ly_lib_name}_sve OBJECT
+        ${ly_src_dir}/row_sve.cc)
+      target_compile_options(${ly_lib_name}_sve PRIVATE -march=armv9-a+sve2)
+      list(APPEND ly_lib_parts $<TARGET_OBJECTS:${ly_lib_name}_sve>)
+    else()
+      add_compile_definitions(LIBYUV_DISABLE_SVE)
+    endif()
 
     set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
     set(OLD_CMAKE_TRY_COMPILE_TARGET_TYPE ${CMAKE_TRY_COMPILE_TARGET_TYPE})
@@ -140,34 +146,44 @@ int main(void) { return 0; }
   endif()
 endif()
 
-# this creates the static library (.a)
-add_library( ${ly_lib_static} STATIC ${ly_lib_parts})
-
-# this creates the shared library (.so)
-add_library( ${ly_lib_shared} SHARED ${ly_lib_parts})
-set_target_properties( ${ly_lib_shared} PROPERTIES OUTPUT_NAME "${ly_lib_name}" )
-set_target_properties( ${ly_lib_shared} PROPERTIES PREFIX "lib" )
+add_library( ${ly_lib_name} ${ly_lib_parts})
+set_target_properties( ${ly_lib_name} PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "$<INSTALL_INTERFACE:include>;$<BUILD_INTERFACE:${ly_inc_dir}>" )
+set_target_properties( ${ly_lib_name} PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR} )
+set_target_properties( ${ly_lib_name} PROPERTIES OUTPUT_NAME "${ly_lib_name}" )
+set_target_properties( ${ly_lib_name} PROPERTIES PREFIX "" )
 if(WIN32)
-  set_target_properties( ${ly_lib_shared} PROPERTIES IMPORT_PREFIX "lib" )
+  set_target_properties( ${ly_lib_name} PROPERTIES IMPORT_PREFIX "lib" )
+  set_target_properties( ${ly_lib_name} PROPERTIES IMPORT_SUFFIX _imp${CMAKE_IMPORT_LIBRARY_SUFFIX} )
 endif()
+install(TARGETS ${ly_lib_name}
+  EXPORT ${CMAKE_PROJECT_NAME}Config
+  LIBRARY DESTINATION lib COMPONENT dev
+  ARCHIVE DESTINATION lib COMPONENT dev
+  RUNTIME DESTINATION bin COMPONENT bin)
 
 # this creates the cpuid tool
-add_executable      ( cpuid ${ly_base_dir}/util/cpuid.c )
-target_link_libraries  ( cpuid ${ly_lib_static} )
+if(BUILD_TOOLS)
+  add_executable      ( cpuid ${ly_base_dir}/util/cpuid.c )
+  target_link_libraries  ( cpuid ${ly_lib_name} )
 
-# this creates the conversion tool
-add_executable			( yuvconvert ${ly_base_dir}/util/yuvconvert.cc )
-target_link_libraries	( yuvconvert ${ly_lib_static} )
+  # this creates the conversion tool
+  add_executable			( yuvconvert ${ly_base_dir}/util/yuvconvert.cc )
+  target_link_libraries	( yuvconvert ${ly_lib_name} )
 
-# this creates the yuvconstants tool
-add_executable      ( yuvconstants ${ly_base_dir}/util/yuvconstants.c )
-target_link_libraries  ( yuvconstants ${ly_lib_static} )
+  # this creates the yuvconstants tool
+  add_executable      ( yuvconstants ${ly_base_dir}/util/yuvconstants.c )
+  target_link_libraries  ( yuvconstants ${ly_lib_name} )
 
-find_package ( JPEG )
-if (JPEG_FOUND)
-  include_directories( ${JPEG_INCLUDE_DIR} )
-  target_link_libraries( ${ly_lib_shared} ${JPEG_LIBRARY} )
-  add_definitions( -DHAVE_JPEG )
+  install ( TARGETS yuvconvert cpuid yuvconstants DESTINATION bin )
+endif()
+
+if(USE_LIBJPEG)
+  find_package ( JPEG )
+  if (JPEG_FOUND)
+    include_directories( ${JPEG_INCLUDE_DIR} )
+    target_link_libraries( ${ly_lib_name} ${JPEG_LIBRARY} )
+    add_definitions( -DHAVE_JPEG )
+  endif()
 endif()
 
 if(UNIT_TEST)
@@ -191,12 +207,12 @@ if(UNIT_TEST)
   endif()
 
   add_executable(libyuv_unittest ${ly_unittest_sources})
-  target_link_libraries(libyuv_unittest ${ly_lib_name} ${GTEST_LIBRARY})
+  target_link_libraries(libyuv_unittest libyuv ${GTEST_LIBRARY})
   find_library(PTHREAD_LIBRARY pthread)
   if(NOT PTHREAD_LIBRARY STREQUAL "PTHREAD_LIBRARY-NOTFOUND")
     target_link_libraries(libyuv_unittest pthread)
   endif()
-  if (JPEG_FOUND)
+  if (USE_LIBJPEG AND JPEG_FOUND)
     target_link_libraries(libyuv_unittest ${JPEG_LIBRARY})
   endif()
 
@@ -212,11 +228,11 @@ if(UNIT_TEST)
 endif()
 
 
-# install the conversion tool, .so, .a, and all the header files
-install ( TARGETS yuvconvert DESTINATION bin )
-install ( TARGETS ${ly_lib_static}						DESTINATION lib )
-install ( TARGETS ${ly_lib_shared} LIBRARY DESTINATION lib RUNTIME DESTINATION bin ARCHIVE DESTINATION lib )
+# install the .so, .a, and all the header files
 install ( DIRECTORY ${PROJECT_SOURCE_DIR}/include/		DESTINATION include )
+
+install(EXPORT ${CMAKE_PROJECT_NAME}Config
+    DESTINATION cmake)
 
 # create the .deb and .rpm packages using cpack
 include ( CM_linux_packages.cmake )

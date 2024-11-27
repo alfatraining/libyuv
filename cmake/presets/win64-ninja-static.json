@@ -1,0 +1,76 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "include": ["common.json"],
+  "configurePresets": [
+    {
+      "inherits": "common",
+      "name": "win64-ninja-static",
+      "cacheVariables": {
+        "CMAKE_MSVC_RUNTIME_LIBRARY": {
+          "type": "STRING",
+          "value": "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        }
+      },
+      "environment": {
+        "CXX": "clang-cl",
+        "CC": "clang-cl"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win64-ninja-static",
+      "configurePreset": "win64-ninja-static",
+      "configuration": "Release",
+      "targets": ["install"]
+    },
+    {
+      "name": "win64-ninja-static-debug",
+      "configurePreset": "win64-ninja-static",
+      "configuration": "Debug",
+      "targets": ["install"]
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "win64-ninja-static",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "win64-ninja-static"
+        },
+        {
+          "type": "build",
+          "name": "win64-ninja-static"
+        }
+      ]
+    },
+    {
+      "name": "win64-ninja-static-dev",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "win64-ninja-static"
+        },
+        {
+          "type": "build",
+          "name": "win64-ninja-static"
+        },
+        {
+          "type": "build",
+          "name": "win64-ninja-static-debug"
+        }
+      ]
+    }
+  ]
+}
